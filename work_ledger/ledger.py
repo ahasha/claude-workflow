@@ -142,7 +142,11 @@ def build_tasks(sessions: list[dict], cfg: Config) -> list[dict]:
 
     tasks = []
     for (host, folder), group in groups.items():
-        group.sort(key=lambda s: s.get("last_seen") or "")
+        # Records written in the same second tie on last_seen; tie-break so the
+        # order never depends on which file the glob happened to read first.
+        group.sort(
+            key=lambda s: (s.get("last_seen") or "", s.get("first_seen") or "", s["session_id"])
+        )
         latest = group[-1]
 
         claude_files: list[str] = []

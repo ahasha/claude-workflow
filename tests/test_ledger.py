@@ -76,3 +76,19 @@ def test_key_files_order_and_filters(tmp_path):
     got = [p.rsplit("/", 1)[1] for p in ledger.key_files(task, 10)]
     assert got == ["b.py", "a.py", "c.py", "d.py"]
     assert len(ledger.key_files(task, 2)) == 2
+
+
+def test_sessions_with_equal_last_seen_order_deterministically():
+    """Records written in the same second must not order by filesystem order."""
+    cfg = config.load()
+    ts = "2026-09-18T22:01:00+00:00"
+    a = {"session_id": "manual-x", "host": "testhost", "folder": "/f", "last_seen": ts,
+         "first_seen": "2026-09-18T22:00:00+00:00"}
+    b = {"session_id": "s1", "host": "testhost", "folder": "/f", "last_seen": ts,
+         "first_seen": ts}
+
+    forward = ledger.build_tasks([a, b], cfg)[0]["sessions"]
+    reverse = ledger.build_tasks([b, a], cfg)[0]["sessions"]
+
+    assert [s["session_id"] for s in forward] == [s["session_id"] for s in reverse]
+    assert forward[0]["session_id"] == "s1"
