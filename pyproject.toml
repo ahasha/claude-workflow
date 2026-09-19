@@ -1,0 +1,34 @@
+[project]
+name = "work-ledger"
+version = "0.1.0"
+description = "Find a unit of Claude Code work and reopen it in VS Code with the right folder, files and venv."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["click>=8.1"]
+
+[project.scripts]
+work-ledger = "work_ledger.cli:main"
+wl = "work_ledger.cli:main"
+work-ledger-hook = "work_ledger.hook:main"
+
+[build-system]
+requires = ["uv_build>=0.9,<0.13"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.pytest.ini_options]
+pythonpath = ["tests"]
