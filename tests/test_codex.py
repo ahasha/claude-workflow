@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from conftest import write_transcript
 
 from work_ledger import codex
@@ -141,3 +143,141 @@ def test_scan_skips_the_boilerplate_codex_really_emits(tmp_path):
     state = codex.scan(str(path), {})
 
     assert state["first_prompt"] == "FWIW, the oil boiler had a non-zero standby consumption"
+
+
+def test_thread_names_reads_last_entry_per_session_id(tmp_path):
+    """The index appends a line per rename; the last one is the current name."""
+    index = tmp_path / "session_index.jsonl"
+    write_transcript(
+        index,
+        [
+            {"id": "01a0", "thread_name": "New voice chat", "updated_at": "2026-09-01T15:11:21Z"},
+            {"id": "01a0", "thread_name": "Projektverbindung", "updated_at": "2026-09-01T15:11:39Z"},
+            {"id": "01b0", "thread_name": "Review Span Monitor", "updated_at": "2026-09-01T15:14Z"},
+        ],
+    )
+
+    names = codex.thread_names(index)
+
+    assert names == {"01a0": "Projektverbindung", "01b0": "Review Span Monitor"}
+
+
+def test_thread_names_is_empty_when_the_index_is_missing(tmp_path):
+    assert codex.thread_names(tmp_path / "nope.jsonl") == {}
+
+
+def test_config_codex_dir_defaults_and_env_override(monkeypatch, tmp_path):
+    from work_ledger import config
+
+    assert config.load().codex_dir == Path.home() / ".codex"
+    monkeypatch.setenv("WORK_LEDGER_CODEX_DIR", str(tmp_path / "cx"))
+    assert config.load().codex_dir == tmp_path / "cx"
+
+
+def test_update_record_accepts_an_alternate_scanner(tmp_path):
+    from work_ledger import hook
+
+    path = write_transcript(tmp_path / "r.jsonl", [world_state(str(tmp_path))])
+    payload = {"session_id": "01a0", "cwd": str(tmp_path), "transcript_path": str(path),
+               "hook_event_name": "codex"}
+
+    record = hook.update_record({}, payload, "testhost", "2026-09-02T13:00:00+00:00",
+                                scan_fn=codex.scan)
+
+    assert record["scan"]["roots"] == ["/repo/a", "/repo/b"]
+    assert record["folder"] == str(tmp_path)
+
+
+def session_meta(sid: str, cwd: str) -> dict:
+    return {
+        "timestamp": "2026-09-02T12:56:00.000Z",
+        "type": "session_meta",
+        "payload": {"id": sid, "cwd": cwd, "cli_version": "1.2"},
+    }
+
+
+def codex_home(tmp_path, rollouts, names=None, archived=None):
+    """A ~/.codex layout: rollouts, optional archived rollouts, a session index."""
+    cx = tmp_path / "codex"
+    for sub, group in (("sessions", rollouts), ("archived_sessions", archived or {})):
+        for name, entries in (group or {}).items():
+            write_transcript(cx / sub / f"{name}.jsonl", entries)
+    write_transcript(
+        cx / "session_index.jsonl",
+        [{"id": k, "thread_name": v} for k, v in (names or {}).items()],
+    )
+    return cx
+
+
+def sweep_cfg(monkeypatch, cx):
+    from work_ledger import config
+
+    monkeypatch.setenv("WORK_LEDGER_CODEX_DIR", str(cx))
+    return config.load()
+
+
+def test_sweep_writes_a_record_for_a_new_rollout(tmp_path, repo, monkeypatch):
+    other = tmp_path / "other"
+    other.mkdir()
+    fs = (
+        f"<filesystem><workspace_roots><root>{repo}</root>"
+        f"<root>{other}</root></workspace_roots></filesystem>"
+    )
+    cx = codex_home(
+        tmp_path,
+        {"rollout-1": [session_meta("01a0", str(repo)), world_state(str(repo), fs)]},
+        names={"01a0": "Review heat pump analysis"},
+    )
+    cfg = sweep_cfg(monkeypatch, cx)
+
+    [record] = codex.sweep(cfg)
+
+    assert record["session_id"] == "codex-01a0"
+    assert record["source"] == "codex"
+    assert record["title"] == "Review heat pump analysis"
+    assert record["folder"] == str(repo)
+    assert record["branch"] == "main"
+    assert record["roots"] == [str(other)]
+
+
+def test_sweep_drops_roots_inside_the_codex_dir_and_missing_dirs(tmp_path, repo, monkeypatch):
+    cx = tmp_path / "codex"
+    viz = cx / "visualizations" / "2026"
+    viz.mkdir(parents=True)
+    fs = (
+        f"<filesystem><workspace_roots><root>{repo}</root><root>{viz}</root>"
+        f"<root>{tmp_path / 'gone'}</root></workspace_roots></filesystem>"
+    )
+    codex_home(tmp_path, {"rollout-1": [session_meta("01a0", str(repo)), world_state(str(repo), fs)]})
+    cfg = sweep_cfg(monkeypatch, cx)
+
+    [record] = codex.sweep(cfg)
+
+    assert record["roots"] == []
+
+
+def test_sweep_skips_files_it_already_read(tmp_path, repo, monkeypatch):
+    cx = codex_home(tmp_path, {"rollout-1": [session_meta("01a0", str(repo)), world_state(str(repo))]})
+    cfg = sweep_cfg(monkeypatch, cx)
+
+    assert len(codex.sweep(cfg)) == 1
+    assert codex.sweep(cfg) == []
+
+
+def test_sweep_covers_archived_sessions(tmp_path, repo, monkeypatch):
+    cx = codex_home(
+        tmp_path,
+        {},
+        archived={"rollout-old": [session_meta("01b0", str(repo)), world_state(str(repo))]},
+    )
+    cfg = sweep_cfg(monkeypatch, cx)
+
+    [record] = codex.sweep(cfg)
+
+    assert record["session_id"] == "codex-01b0"
+
+
+def test_sweep_is_a_noop_without_a_codex_dir(tmp_path, monkeypatch):
+    cfg = sweep_cfg(monkeypatch, tmp_path / "absent")
+
+    assert codex.sweep(cfg) == []

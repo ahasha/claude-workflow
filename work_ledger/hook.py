@@ -22,7 +22,9 @@ from pathlib import Path
 from work_ledger import config, gitinfo, relocate, transcript
 
 
-def update_record(existing: dict, payload: dict, host: str, now: str) -> dict:
+def update_record(
+    existing: dict, payload: dict, host: str, now: str, scan_fn=transcript.scan
+) -> dict:
     cwd = payload.get("cwd") or os.getcwd()
     tpath = payload.get("transcript_path")
 
@@ -30,7 +32,7 @@ def update_record(existing: dict, payload: dict, host: str, now: str) -> dict:
     if tpath:
         if scan_state.get("path") != tpath:
             scan_state = {"path": tpath}
-        transcript.scan(tpath, scan_state)
+        scan_fn(tpath, scan_state)
         scan_state["path"] = tpath
 
     # In a Claude Code worktree session, cwd can stay at the main repo.

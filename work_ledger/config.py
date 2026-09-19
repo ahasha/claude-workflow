@@ -35,6 +35,8 @@ class Config:
     max_files: int = 8
     days: int = 60
     obsidian_daily_dir: Path | None = None
+    # where Codex keeps its rollout transcripts and session index
+    codex_dir: Path = field(default_factory=lambda: Path.home() / ".codex")
 
 
 def load() -> Config:
@@ -55,6 +57,8 @@ def load() -> Config:
         cfg.ledger_dir = Path(data["ledger_dir"]).expanduser()
     if isinstance(data.get("obsidian_daily_dir"), str):
         cfg.obsidian_daily_dir = Path(data["obsidian_daily_dir"]).expanduser()
+    if isinstance(data.get("codex_dir"), str):
+        cfg.codex_dir = Path(data["codex_dir"]).expanduser()
     for key in ("max_files", "days"):
         if isinstance(data.get(key), int):
             setattr(cfg, key, data[key])
@@ -65,6 +69,8 @@ def load() -> Config:
         cfg.host = env
     if env := os.environ.get("WORK_LEDGER_DIR"):
         cfg.ledger_dir = Path(env).expanduser()
+    if env := os.environ.get("WORK_LEDGER_CODEX_DIR"):
+        cfg.codex_dir = Path(env).expanduser()
     return cfg
 
 
@@ -84,6 +90,7 @@ def dumps(cfg: Config) -> str:
         f"remote_command = {q(cfg.remote_command)}",
         f"max_files = {cfg.max_files}",
         f"days = {cfg.days}",
+        f"codex_dir = {q(_home_relative(cfg.codex_dir))}",
     ]
     if cfg.obsidian_daily_dir:
         lines.append(f"obsidian_daily_dir = {q(_home_relative(cfg.obsidian_daily_dir))}")
