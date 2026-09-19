@@ -9,6 +9,7 @@ import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from work_ledger import gitinfo, hook
 from work_ledger.config import Config
 
 USER_FIELDS = ("note", "archived", "extra_folders")
@@ -103,6 +104,33 @@ def save_meta(cfg: Config, task: dict, **changes) -> None:
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
+def add_manual(cfg: Config, folder: str) -> dict:
+    """Record a task for work done outside local Claude Code (Cowork, by hand).
+
+    Writes a session-style record, so it groups with any Claude sessions in the
+    same folder. Re-running it marks the task as touched now.
+    """
+    top = gitinfo.toplevel(folder) or folder
+    sid = f"manual-{task_id(cfg.host, top)}"
+    path = hook.session_path(cfg, sid)
+    existing = hook.read_existing(path) if path.exists() else {}
+    now = datetime.now(UTC).isoformat(timespec="seconds")
+    record = {
+        **existing,
+        "session_id": sid,
+        "source": "manual",
+        "host": cfg.host,
+        "folder": top,
+        "cwd": top,
+        "first_seen": existing.get("first_seen") or now,
+        "last_seen": now,
+        "last_event": "manual",
+        **gitinfo.info(top),
+    }
+    hook.atomic_write(path, record)
+    return record
+
+
 def build_tasks(sessions: list[dict], cfg: Config) -> list[dict]:
     groups: dict[tuple[str, str], list[dict]] = {}
     for s in sessions:
@@ -143,7 +171,10 @@ def build_tasks(sessions: list[dict], cfg: Config) -> list[dict]:
             "dirty_files": latest.get("dirty_files") or [],
             "branch_files": latest.get("branch_files") or [],
             "sessions": [
-                {k: s.get(k) for k in ("session_id", "cwd", "last_seen", "title", "entrypoint")}
+                {
+                    k: s.get(k)
+                    for k in ("session_id", "cwd", "last_seen", "title", "entrypoint", "source")
+                }
                 for s in reversed(group)
             ],
             "note": None,
@@ -152,6 +183,8 @@ def build_tasks(sessions: list[dict], cfg: Config) -> list[dict]:
         }
         meta = load_meta(cfg, host, tid)
         task.update({k: meta[k] for k in USER_FIELDS if k in meta})
+        if meta.get("title"):  # set with `wl add -t`; wins over Claude's titles
+            task["title"] = meta["title"]
         tasks.append(task)
 
     tasks.sort(key=lambda t: t.get("last_seen") or "", reverse=True)

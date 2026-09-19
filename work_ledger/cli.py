@@ -231,23 +231,27 @@ def open_(query, include_archived, dry_run):
 @picker_options
 @click.option("--dry-run", is_flag=True, help="Print the command instead of running it.")
 def claude(query, include_archived, dry_run):
-    """Resume the task's most recent Claude Code session."""
+    """Resume the task's most recent Claude Code session (or start one)."""
     cfg = config_mod.load()
     task = pick(cfg, ledger.load_tasks(cfg, include_archived), " ".join(query))
-    session = task["sessions"][0]
-    cwd, sid = session.get("cwd") or task["folder"], session["session_id"]
+    sessions = [s for s in task["sessions"] if s.get("source") != "manual"]
+    if sessions:
+        cwd = sessions[0].get("cwd") or task["folder"]
+        args = ["claude", "--resume", sessions[0]["session_id"]]
+    else:  # a task added with `wl add`: start a fresh session there
+        cwd, args = task["folder"], ["claude"]
     if task["host"] != cfg.host:
-        inner = f"cd {shlex.quote(cwd)} && exec claude --resume {shlex.quote(sid)}"
+        inner = f"cd {shlex.quote(cwd)} && exec {shlex.join(args)}"
         cmd = ["ssh", "-t", ssh_alias(cfg, task), f"exec $SHELL -lc {shlex.quote(inner)}"]
         run_or_print(cmd, dry_run)
         return
     if not os.path.isdir(cwd):
         raise click.ClickException(f"{cwd} no longer exists.")
     if dry_run:
-        click.echo(f"cd {shlex.quote(cwd)} && claude --resume {sid}")
+        click.echo(f"cd {shlex.quote(cwd)} && {shlex.join(args)}")
         return
     os.chdir(cwd)
-    run_or_print(["claude", "--resume", sid], dry_run)
+    run_or_print(args, dry_run)
 
 
 @cli.command()
@@ -301,16 +305,40 @@ def archive(query):
     click.echo("unarchived" if task.get("archived") else "archived", err=True)
 
 
-@cli.command("add-folder")
-@click.argument("folder", type=click.Path(exists=True, file_okay=False, resolve_path=True))
-@click.argument("query", nargs=-1)
-def add_folder(folder, query):
-    """Add another repo or worktree to a local task's workspace (multi-repo work)."""
+@cli.command()
+@click.argument(
+    "folder", default=".", type=click.Path(exists=True, file_okay=False, resolve_path=True)
+)
+@click.option("-t", "--title", help="Task title. Replaces Claude's title for this task.")
+@click.option(
+    "--to",
+    "to_query",
+    metavar="WORDS",
+    help="Add FOLDER to the task matching WORDS instead (multi-repo work).",
+)
+def add(folder, title, to_query):
+    """Add a task for FOLDER (default: current folder), or add FOLDER to a task.
+
+    Use it for work Claude Code didn't record, such as Cowork sessions.
+    """
     cfg = config_mod.load()
-    task = pick(cfg, ledger.load_tasks(cfg, local_only=True), " ".join(query))
-    extra = [f for f in task.get("extra_folders") or [] if f != folder]
-    ledger.save_meta(cfg, task, extra_folders=[*extra, folder])
-    click.echo(f"added {folder} to '{task.get('title')}'", err=True)
+    if to_query is not None:
+        task = pick(cfg, ledger.load_tasks(cfg, local_only=True), to_query)
+        extra = [f for f in task.get("extra_folders") or [] if f != folder]
+        ledger.save_meta(cfg, task, extra_folders=[*extra, folder])
+        click.echo(f"added {folder} to '{task.get('title')}'", err=True)
+        return
+
+    record = ledger.add_manual(cfg, folder)
+    task = {
+        "host": cfg.host,
+        "folder": record["folder"],
+        "id": ledger.task_id(cfg.host, record["folder"]),
+    }
+    if title:
+        ledger.save_meta(cfg, task, title=title.strip())
+    shown = title or ledger.load_meta(cfg, cfg.host, task["id"]).get("title") or "(untitled)"
+    click.echo(f"task {task['id']}: {where(record)}  {shown}", err=True)
 
 
 @cli.command("backfill")

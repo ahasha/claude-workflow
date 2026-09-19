@@ -38,7 +38,8 @@ wl list                # recent tasks, newest first
 wl show [words]        # details: files, sessions, last prompt
 wl note -m "next: write tests" [words]
 wl archive [words]     # hide a finished task (toggle)
-wl add-folder ~/repos/other [words]   # multi-repo task: add a folder to the workspace
+wl add [folder] -t "title"            # task for work Claude Code didn't record (e.g. Cowork)
+wl add ~/repos/other --to [words]     # multi-repo task: add a folder to the workspace
 cd "$(wl path)"
 wl backfill            # add sessions from before install (see below)
 ```
@@ -56,7 +57,16 @@ Tasks on a host in `[remotes]` open through Remote-SSH, with steps 1–2 run on 
 
 Each host writes only its own `sessions/<host>/` folder, so a synced ledger never conflicts. Without syncing, `wl` fetches `[remotes]` hosts' records over ssh (`work-ledger dump`).
 
-Claude Code CLI sessions and the desktop app's local Code sessions both load `~/.claude/settings.json`, so both are recorded. Cloud sessions are not.
+## What gets recorded
+
+| Where the session runs | Recorded |
+|---|---|
+| Claude Code CLI | Yes |
+| Desktop app Code session, Local environment | Yes (same `~/.claude/settings.json`) |
+| Desktop app Code session, SSH environment | Yes, if `work-ledger install` was run on that host |
+| Cloud sessions, including cloud Cowork | No. Use `wl add` |
+
+`wl add` writes a manual record, so the folder groups with any later Claude sessions there. A title set with `-t` stays the task's title. Re-running `wl add` marks the task as touched now.
 
 ## Layout
 

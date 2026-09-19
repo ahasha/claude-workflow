@@ -51,8 +51,11 @@ The transcript is read incrementally from a stored byte offset, so the per-turn 
 
 Key files: `claude_files` (most recent first), then `dirty_files`, then `branch_files`; existing files only, deduplicated, capped at `max_files` (default 8).
 
+## Manual tasks
+`work-ledger add [folder] [-t title]` records work that Claude Code didn't, such as cloud Cowork sessions. It writes `sessions/<host>/manual-<task_id>.json` with `source: manual`, so it groups like any session. A `-t` title is stored in the task's meta file and overrides Claude's titles. `work-ledger claude` on a task with only manual records starts a new session in its folder.
+
 ## Multi-repo tasks
-A task can list extra folders (`work-ledger add-folder`). They appear as extra roots in the workspace. Only the first folder's `.venv` becomes the interpreter.
+A task can list extra folders (`work-ledger add <folder> --to <words>`). They appear as extra roots in the workspace. Only the first folder's `.venv` becomes the interpreter.
 
 ## Hosts
 - Each machine gets a fixed `host` name at install time, stored in `~/.config/work-ledger/config.toml`. Mac hostnames drift, so `gethostname()` is only the default.
