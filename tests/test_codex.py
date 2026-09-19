@@ -353,3 +353,13 @@ def test_clean_roots_drops_ancestors_and_descendants_of_the_folder(tmp_path):
     roots = [str(tmp_path / "Codex"), str(inside), str(sibling)]
 
     assert codex.clean_roots(roots, str(folder), tmp_path / "codex-home") == [str(sibling)]
+
+
+def test_sweep_is_a_noop_on_a_partial_codex_dir(tmp_path, monkeypatch):
+    """A machine that has ~/.codex but never ran Codex, or has no sessions yet."""
+    cx = tmp_path / "codex"
+    (cx / "sessions").mkdir(parents=True)
+    (cx / "sessions" / "notes.txt").write_text("not a rollout")
+    cfg = sweep_cfg(monkeypatch, cx)
+
+    assert codex.sweep(cfg) == []
