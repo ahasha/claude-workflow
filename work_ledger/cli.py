@@ -21,6 +21,15 @@ from work_ledger import config as config_mod
 from work_ledger import install as install_mod
 from work_ledger import ledger, vscode
 
+if sys.platform == "darwin":
+    FZF_HINT = "Install it with: brew install fzf"
+    CODE_HINT = (
+        "In VS Code, run 'Shell Command: Install 'code' command in PATH' from the Command Palette."
+    )
+else:
+    FZF_HINT = "Install it with: sudo apt install fzf"
+    CODE_HINT = "Install VS Code, or add its bin folder to PATH."
+
 # ------------------------------------------------------------------ display
 
 
@@ -161,9 +170,8 @@ def run_or_print(cmd: list[str], dry_run: bool) -> None:
         click.echo(shlex.join(cmd))
         return
     if not (os.path.isabs(cmd[0]) or shutil.which(cmd[0])):
-        raise click.ClickException(
-            f"`{cmd[0]}` not found. In VS Code run 'Shell Command: Install code command in PATH'."
-        )
+        hint = CODE_HINT if cmd[0] == "code" else ""
+        raise click.ClickException(f"`{cmd[0]}` not found. {hint}".strip())
     os.execvp(cmd[0], cmd)
 
 
@@ -371,9 +379,9 @@ def install(host, ledger_dir, remotes, retention_days):
     click.echo(f"hooks:    {settings}" + (f"  (backup: {backup.name})" if backup else ""))
     click.echo(f"command:  {command}")
     if not shutil.which("fzf"):
-        click.echo("note: fzf not found; the picker will use a numbered menu.")
+        click.echo(f"note: fzf not found; the picker will use a numbered menu. {FZF_HINT}")
     if not vscode.code_bin():
-        click.echo("note: VS Code's `code` command not found on PATH.")
+        click.echo(f"note: VS Code's `code` command not found on PATH. {CODE_HINT}")
 
 
 def main() -> None:
