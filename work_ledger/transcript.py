@@ -89,6 +89,11 @@ def _handle(entry: dict, state: dict) -> None:
 
 def scan(path: str, state: dict) -> dict:
     """Read new complete lines since state["offset"] and fold them into state."""
+    return fold(path, state, _handle)
+
+
+def fold(path: str, state: dict, handle) -> dict:
+    """Read new complete lines since state["offset"] and pass each to `handle`."""
     try:
         size = os.path.getsize(path)
     except OSError:
@@ -109,6 +114,6 @@ def scan(path: str, state: dict) -> dict:
         except (json.JSONDecodeError, UnicodeDecodeError):
             continue
         if isinstance(entry, dict):
-            _handle(entry, state)
+            handle(entry, state)
     state["offset"] = offset + end + 1
     return state
