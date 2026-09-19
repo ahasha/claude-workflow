@@ -16,10 +16,17 @@ import json
 import os
 from pathlib import Path
 
-from work_ledger import hook
 from work_ledger.config import Config
 
+# Bump when is_stale changes, so the hook re-checks records it already checked.
+VERSION = 2
 PATH_FIELDS = ("folder", "main_repo", "last_cwd")
+
+
+def _hook():
+    from work_ledger import hook  # hook imports this module
+
+    return hook
 
 
 def rebase(path: str, old: str, new: str) -> str:
@@ -45,8 +52,8 @@ def move_meta(cfg: Config, old_folder: str, new_folder: str) -> None:
     new = cfg.ledger_dir / "tasks" / cfg.host / f"{task_id(cfg.host, new_folder)}.json"
     if not old.exists() or old == new:
         return
-    old_meta = hook.read_existing(old)
-    new_meta = hook.read_existing(new)
+    old_meta = _hook().read_existing(old)
+    new_meta = _hook().read_existing(new)
     merged = {**old_meta, **new_meta, "folder": new_folder}
     new.parent.mkdir(parents=True, exist_ok=True)
     new.write_text(json.dumps(merged, indent=2), encoding="utf-8")
@@ -61,7 +68,7 @@ def reconcile(cfg: Config, record: dict) -> int:
 
     moved = 0
     for path in Path(cfg.ledger_dir, "sessions", cfg.host).glob("*.json"):
-        rec = hook.read_existing(path)
+        rec = _hook().read_existing(path)
         if rec.get("session_id") == record["session_id"] or not is_stale(rec, record):
             continue
         old_main = rec["main_repo"]
@@ -72,7 +79,7 @@ def reconcile(cfg: Config, record: dict) -> int:
         rec["claude_files"] = [rebase(f, old_main, new_main) for f in rec.get("claude_files") or []]
         rec["repo_id"] = record["repo_id"]
         rec["moved_from"] = old_main
-        hook.atomic_write(path, rec)
+        _hook().atomic_write(path, rec)
         if old_folder and old_folder != rec["folder"]:
             move_meta(cfg, old_folder, rec["folder"])
         moved += 1

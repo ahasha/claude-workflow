@@ -19,7 +19,7 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
-from work_ledger import config, gitinfo, transcript
+from work_ledger import config, gitinfo, relocate, transcript
 
 
 def update_record(existing: dict, payload: dict, host: str, now: str) -> dict:
@@ -146,13 +146,12 @@ def run(stdin=None) -> None:
         except OSError:
             pass
 
-    checked = record.get("repo_id") and not existing.get("reloc_checked")
+    checked = record.get("repo_id") and existing.get("reloc_checked") != relocate.VERSION
     if checked:
-        record["reloc_checked"] = True
+        record["reloc_checked"] = relocate.VERSION
     atomic_write(path, record)
     if checked:
-        from work_ledger import relocate  # after the write, so a failure can't lose the record
-
+        # After the write, so a failure here can't lose the record.
         relocate.reconcile(cfg, record)
 
 
