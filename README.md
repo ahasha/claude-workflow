@@ -2,7 +2,7 @@
 
 Find a unit of Claude Code work and reopen it in VS Code: the right folder, the key files open, and the task's `.venv` as the Python interpreter. Works on macOS and Linux, across several machines.
 
-A Claude Code hook records each session: which host, which worktree and branch, what it was about, and which files it touched. `wl` groups sessions into **tasks** (one working folder on one host) and lets you fuzzy-pick one.
+A Claude Code hook records each session: which host, which worktree and branch, what it was about, and which files it touched. Codex sessions are picked up from `~/.codex` whenever `wl` runs. `wl` groups both into **tasks** (one working folder on one host) and lets you fuzzy-pick one.
 
 ## Install (each machine)
 
@@ -20,6 +20,7 @@ Useful options:
 - `--remote vm=devbox`: a host VS Code can reach with Remote-SSH (`devbox` is the ssh alias). Repeatable.
 - `--ledger-dir ~/Sync/work-ledger`: put the ledger in a synced folder so every machine sees every task.
 - `--retention-days 3650`: keep Claude Code transcripts longer than the default 30 days, so `wl claude` can resume old sessions.
+- `codex_dir` in `config.toml` (default `~/.codex`): where to look for Codex sessions. `WORK_LEDGER_CODEX_DIR` overrides it.
 
 Also recommended:
 - `fzf` for the picker (`brew install fzf` / `apt install fzf`). Without it you get a numbered menu.
@@ -51,6 +52,8 @@ Opening a task:
 2. Writes `~/.work-ledger/workspaces/<host>/<task>.code-workspace` with `python.defaultInterpreterPath` set to the task's `.venv`.
 3. Opens the workspace plus up to 8 key files: the ones Claude edited most recently, then uncommitted changes, then files changed on the branch.
 
+Codex records no edited files (it works through shell commands, not an edit tool), so a Codex task's key files come from git alone. A Codex session's workspace roots become extra folders in the workspace.
+
 Tasks on a host in `[remotes]` open through Remote-SSH, with steps 1–2 run on that host over ssh. Tasks on other hosts show which machine they're on.
 
 ## Multiple machines
@@ -65,6 +68,7 @@ Each host writes only its own `sessions/<host>/` folder, so a synced ledger neve
 | Desktop app Code session, Local environment | Yes (same `~/.claude/settings.json`) |
 | Desktop app Code session, SSH environment | Yes, if `work-ledger install` was run on that host |
 | Cloud sessions, including cloud Cowork | No. Use `wl add` |
+| Codex | Yes, swept from `~/.codex` when `wl` runs |
 
 `wl add` writes a manual record, so the folder groups with any later Claude sessions there. A title set with `-t` stays the task's title. Re-running `wl add` marks the task as touched now.
 
@@ -75,6 +79,7 @@ work_ledger/
   cli.py          click CLI (work-ledger, wl)
   hook.py         the hook (work-ledger-hook); standard library only
   transcript.py   incremental transcript reader
+  codex.py        Codex rollout reader and sweep
   gitinfo.py      branch, worktree, dirty and branch-changed files
   ledger.py       sessions → tasks, notes/archive, key files
   vscode.py       workspace file, uv sync, code command

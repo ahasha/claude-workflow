@@ -57,6 +57,17 @@ Key files: `claude_files` (most recent first), then `dirty_files`, then `branch_
 ## Multi-repo tasks
 A task can list extra folders (`work-ledger add <folder> --to <words>`). They appear as extra roots in the workspace. Only the first folder's `.venv` becomes the interpreter.
 
+Codex sessions supply their own roots, so a task's workspace folders are its folder, then `session_roots` (union of its sessions' roots), then the user's `extra_folders`. `extra_folders` stays a user field: a sweep never writes to it, so a folder removed by hand is not added back.
+
+## Codex sessions
+Codex has no per-turn hook, so its sessions are swept rather than pushed. `ledger.load_sessions` calls `codex.sweep` before reading, so any `wl` command folds in new Codex work.
+
+`codex.scan` produces the same state dict as `transcript.scan`, and `hook.update_record` takes a `scan_fn`, so one record builder serves both. Records get `source: "codex"` and an id of `codex-<session id>`.
+
+The sweep keeps `<ledger>/state/<host>/codex-sweep.json`, mapping each rollout path to its mtime and size, and re-reads a file only when one changes. Records are durable, so a rollout Codex later prunes stays in the ledger.
+
+Titles come from `~/.codex/session_index.jsonl` (`thread_name`), which beats a first prompt. See `docs/transcript-findings.md` for the rollout fields and the boilerplate prefixes.
+
 ## Hosts
 - Each machine gets a fixed `host` name at install time, stored in `~/.config/work-ledger/config.toml`. Mac hostnames drift, so `gethostname()` is only the default.
 - `remotes` maps host names to ssh aliases, for hosts VS Code can reach through Remote-SSH.
