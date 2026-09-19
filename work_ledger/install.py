@@ -14,9 +14,12 @@ OUR_MARKERS = ("record_session.py", "work-ledger-hook", "work_ledger.hook")
 EVENTS = {"Stop": None, "SessionEnd": 10}  # event -> timeout in seconds (SessionEnd default is 1.5)
 
 
+def claude_dir() -> Path:
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude").expanduser()
+
+
 def claude_settings_path() -> Path:
-    base = os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude"
-    return Path(base).expanduser() / "settings.json"
+    return claude_dir() / "settings.json"
 
 
 def hook_command() -> str:

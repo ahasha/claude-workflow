@@ -40,7 +40,10 @@ wl note -m "next: write tests" [words]
 wl archive [words]     # hide a finished task (toggle)
 wl add-folder ~/repos/other [words]   # multi-repo task: add a folder to the workspace
 cd "$(wl path)"
+wl backfill            # add sessions from before install (see below)
 ```
+
+New sessions are recorded automatically by the hook after every Claude response. `wl backfill` adds older sessions from the transcripts Claude Code still keeps in `~/.claude/projects` (30 days by default). It uses the transcript's own timestamps, skips sessions already in the ledger (`--force` rebuilds them), and supports `--days N` and `--dry-run`. Git facts such as uncommitted files reflect the folder as it is now.
 
 Opening a task:
 1. Runs `uv sync` if the folder is a uv project with no `.venv` yet (fresh worktrees).

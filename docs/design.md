@@ -32,6 +32,10 @@ Files
 - `dirty_files`: `git status --porcelain`, excluding deletions.
 - `branch_files`: `git diff --name-only <merge-base with default branch>`.
 
+If the transcript's worktree has since been removed, the session keeps that worktree path as its folder, takes `branch` from the transcript's `gitBranch`, and takes repo facts from `cwd`.
+
+`first_seen` comes from the transcript's first `timestamp`. `work-ledger backfill` builds records the same way from transcripts already on disk, with `last_seen` from the last timestamp.
+
 The transcript is read incrementally from a stored byte offset, so the per-turn `Stop` hook stays cheap on long sessions.
 
 ## Opening a task in VS Code

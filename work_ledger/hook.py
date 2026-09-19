@@ -37,8 +37,22 @@ def update_record(existing: dict, payload: dict, host: str, now: str) -> dict:
     wt = scan_state.get("worktree_path")
     if wt and os.path.isdir(wt):
         folder = gitinfo.toplevel(wt) or wt
+        git = gitinfo.info(folder)
+    elif wt:
+        # Worktree since removed: keep it as its own task; repo facts come from cwd.
+        folder = wt
+        git = {
+            **gitinfo.info(cwd),
+            "is_worktree": True,
+            "branch": None,
+            "dirty_files": [],
+            "branch_files": [],
+        }
     else:
         folder = gitinfo.toplevel(cwd) or cwd
+        git = gitinfo.info(folder)
+    if not git.get("branch") and scan_state.get("git_branch"):
+        git["branch"] = scan_state["git_branch"]
 
     title = (
         payload.get("session_title")
@@ -56,7 +70,7 @@ def update_record(existing: dict, payload: dict, host: str, now: str) -> dict:
         "cwd": existing.get("cwd") or cwd,
         "last_cwd": cwd,
         "transcript_path": tpath,
-        "first_seen": existing.get("first_seen") or now,
+        "first_seen": existing.get("first_seen") or scan_state.get("first_timestamp") or now,
         "last_seen": now,
         "last_event": payload.get("hook_event_name", "unknown"),
         "title": title,
@@ -65,7 +79,7 @@ def update_record(existing: dict, payload: dict, host: str, now: str) -> dict:
         # Which app ran the session (e.g. "cli"); see docs/transcript-findings.md.
         "entrypoint": scan_state.get("entrypoint") or existing.get("entrypoint"),
         "session_kind": scan_state.get("session_kind") or existing.get("session_kind"),
-        **gitinfo.info(folder),
+        **git,
         "scan": scan_state,
     }
 
@@ -94,6 +108,18 @@ def append_obsidian_daily(daily_dir: Path, record: dict) -> None:
         f.write(line)
 
 
+def session_path(cfg: config.Config, session_id: str) -> Path:
+    return cfg.ledger_dir / "sessions" / cfg.host / f"{session_id}.json"
+
+
+def read_existing(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def run(stdin=None) -> None:
     try:
         payload = json.load(stdin or sys.stdin)
@@ -103,13 +129,8 @@ def run(stdin=None) -> None:
         return
 
     cfg = config.load()
-    path = cfg.ledger_dir / "sessions" / cfg.host / f"{payload['session_id']}.json"
-    existing: dict = {}
-    if path.exists():
-        try:
-            existing = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            existing = {}
+    path = session_path(cfg, payload["session_id"])
+    existing = read_existing(path)
 
     now = datetime.now(UTC).isoformat(timespec="seconds")
     record = update_record(existing, payload, cfg.host, now)

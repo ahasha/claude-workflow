@@ -17,6 +17,7 @@ from pathlib import Path
 
 import click
 
+from work_ledger import backfill as backfill_mod
 from work_ledger import config as config_mod
 from work_ledger import install as install_mod
 from work_ledger import ledger, vscode
@@ -310,6 +311,36 @@ def add_folder(folder, query):
     extra = [f for f in task.get("extra_folders") or [] if f != folder]
     ledger.save_meta(cfg, task, extra_folders=[*extra, folder])
     click.echo(f"added {folder} to '{task.get('title')}'", err=True)
+
+
+@cli.command("backfill")
+@click.option("--days", type=int, default=0, help="Only transcripts modified in the last N days.")
+@click.option("--force", is_flag=True, help="Rebuild sessions already in the ledger.")
+@click.option("--dry-run", is_flag=True, help="Show what would be added without writing.")
+def backfill_(days, force, dry_run):
+    """Add sessions from Claude Code transcripts still on this machine.
+
+    Picks up sessions from before `work-ledger install`. Claude Code keeps
+    transcripts for 30 days unless cleanupPeriodDays says otherwise.
+    """
+    cfg = config_mod.load()
+    results = backfill_mod.backfill(cfg, install_mod.claude_dir(), days, force, dry_run)
+    counts: dict[str, int] = {}
+    for status, rec in results:
+        counts[status] = counts.get(status, 0) + 1
+        if status in ("added", "updated"):
+            name = rec.get("repo") or Path(rec["folder"]).name
+            if rec.get("branch"):
+                name += f":{rec['branch']}"
+            click.echo(
+                f"{status:<8}{ago(rec.get('last_seen')):>5}  {name:<40.40} {rec.get('title')}"
+            )
+    verb = "would add" if dry_run else "added"
+    click.echo(
+        f"{verb} {counts.get('added', 0)}, updated {counts.get('updated', 0)}, "
+        f"already in ledger {counts.get('exists', 0)}, skipped empty {counts.get('empty', 0)}.",
+        err=True,
+    )
 
 
 @cli.command(hidden=True)

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import UTC, datetime
 
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 TITLE_MAX = 90
@@ -30,7 +31,22 @@ def text_of(content) -> str:
     return ""
 
 
+def norm_ts(ts: str) -> str | None:
+    """Transcript timestamps ("...T19:23:00.123Z") in the ledger's format ("...+00:00")."""
+    try:
+        return datetime.fromisoformat(ts).astimezone(UTC).isoformat(timespec="seconds")
+    except ValueError:
+        return None
+
+
 def _handle(entry: dict, state: dict) -> None:
+    if isinstance(entry.get("timestamp"), str) and (ts := norm_ts(entry["timestamp"])):
+        state.setdefault("first_timestamp", ts)
+        state["last_timestamp"] = ts
+    if isinstance(entry.get("cwd"), str) and entry["cwd"]:
+        state.setdefault("cwd", entry["cwd"])
+    if isinstance(entry.get("gitBranch"), str) and entry["gitBranch"]:
+        state["git_branch"] = entry["gitBranch"]
     if entry.get("aiTitle"):
         state["ai_title"] = clip(str(entry["aiTitle"]), TITLE_MAX)
     if entry.get("lastPrompt"):
