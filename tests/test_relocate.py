@@ -62,3 +62,14 @@ def test_old_records_without_repo_id_match_on_name(repo, tmp_path):
     run_hook("new", new)
     [task] = ledger.load_tasks(cfg)
     assert task["folder"] == str(new) and len(task["sessions"]) == 2
+
+
+def test_empty_leftover_folder_at_old_path_still_counts_as_moved(repo, tmp_path):
+    run_hook("old", repo)
+    new = tmp_path / "elsewhere" / repo.name
+    new.parent.mkdir()
+    shutil.move(str(repo), str(new))
+    repo.mkdir()
+    run_hook("new", new)
+    [task] = ledger.load_tasks(config.load())
+    assert task["folder"] == str(new) and len(task["sessions"]) == 2

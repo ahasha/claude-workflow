@@ -1,8 +1,8 @@
 """Follow a repo that moved: fold the old location's records into the new one.
 
 Runs from the hook the first time a session is recorded in a repo. A record is
-stale when its main repo no longer exists on this host and it belongs to the
-same repo (same root commit; older records without one match on repo name).
+stale when its main repo is no longer a git checkout on this host (an empty
+leftover folder counts) and it belongs to the same repo (same root commit; older records without one match on repo name).
 Its paths are rebased onto the new location, so it groups with the new
 sessions, and its task metadata (note, title, archived) moves too.
 
@@ -29,7 +29,7 @@ def rebase(path: str, old: str, new: str) -> str:
 
 def is_stale(rec: dict, record: dict) -> bool:
     old = rec.get("main_repo")
-    if not old or old == record["main_repo"] or os.path.exists(old):
+    if not old or old == record["main_repo"] or os.path.exists(os.path.join(old, ".git")):
         return False
     if rec.get("repo_id"):
         return rec["repo_id"] == record["repo_id"]
