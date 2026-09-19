@@ -2,7 +2,8 @@
 
 Runs from the hook the first time a session is recorded in a repo. A record is
 stale when its main repo is no longer a git checkout on this host (an empty
-leftover folder counts) and it belongs to the same repo (same root commit; older records without one match on repo name).
+leftover folder counts) and it belongs to the same repo (same root commit;
+older records without one match on repo name).
 Its paths are rebased onto the new location, so it groups with the new
 sessions, and its task metadata (note, title, archived) moves too.
 
