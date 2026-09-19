@@ -9,7 +9,7 @@ import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from work_ledger import gitinfo, hook, relocate
+from work_ledger import codex, gitinfo, hook, relocate
 from work_ledger.config import Config
 
 USER_FIELDS = ("note", "archived", "extra_folders")
@@ -71,6 +71,7 @@ def fetch_remote(cfg: Config, alias: str) -> list[dict]:
 
 
 def load_sessions(cfg: Config, local_only: bool = False) -> list[dict]:
+    codex.sweep(cfg)  # fold in Codex work before reading; cheap when nothing changed
     records = read_local_sessions(cfg)
     if local_only:
         return records
@@ -149,6 +150,12 @@ def build_tasks(sessions: list[dict], cfg: Config) -> list[dict]:
         )
         latest = group[-1]
 
+        session_roots: list[str] = []
+        for s in group:
+            for r in s.get("roots") or []:
+                if r not in session_roots and r != folder:
+                    session_roots.append(r)
+
         claude_files: list[str] = []
         for s in group:
             for f in s.get("claude_files") or []:
@@ -173,6 +180,7 @@ def build_tasks(sessions: list[dict], cfg: Config) -> list[dict]:
             "first_seen": min(s.get("first_seen") or "" for s in group),
             "last_seen": latest.get("last_seen"),
             "claude_files": claude_files,
+            "session_roots": session_roots,
             "dirty_files": latest.get("dirty_files") or [],
             "branch_files": latest.get("branch_files") or [],
             "sessions": [
@@ -218,7 +226,9 @@ def find_task(cfg: Config, tid: str) -> dict | None:
 
 def key_files(task: dict, max_files: int) -> list[str]:
     """Files worth opening, most relevant first. Checks existence, so run on the task's host."""
-    roots = [Path(task["folder"])] + [Path(f) for f in task.get("extra_folders") or []]
+    roots = [Path(task["folder"])] + [
+        Path(f) for f in (task.get("session_roots") or []) + (task.get("extra_folders") or [])
+    ]
     folder = roots[0]
     candidates = (
         list(reversed(task.get("claude_files") or []))

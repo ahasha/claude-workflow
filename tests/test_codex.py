@@ -281,3 +281,75 @@ def test_sweep_is_a_noop_without_a_codex_dir(tmp_path, monkeypatch):
     cfg = sweep_cfg(monkeypatch, tmp_path / "absent")
 
     assert codex.sweep(cfg) == []
+
+
+def test_load_sessions_sweeps_codex(tmp_path, repo, monkeypatch):
+    from work_ledger import ledger
+
+    cx = codex_home(tmp_path, {"rollout-1": [session_meta("01a0", str(repo)), world_state(str(repo))]})
+    cfg = sweep_cfg(monkeypatch, cx)
+
+    [task] = ledger.load_tasks(cfg)
+
+    assert task["folder"] == str(repo)
+    assert [s["source"] for s in task["sessions"]] == ["codex"]
+
+
+def test_build_tasks_unions_roots_across_sessions(tmp_path, monkeypatch):
+    from work_ledger import config, ledger
+
+    cfg = config.load()
+    base = {"host": "testhost", "folder": "/f", "source": "codex"}
+    sessions = [
+        {**base, "session_id": "codex-1", "last_seen": "2026-09-02T12:00:00+00:00",
+         "roots": ["/a"]},
+        {**base, "session_id": "codex-2", "last_seen": "2026-09-02T13:00:00+00:00",
+         "roots": ["/b", "/a"]},
+    ]
+
+    [task] = ledger.build_tasks(sessions, cfg)
+
+    assert task["session_roots"] == ["/a", "/b"]
+
+
+def test_prepare_opens_session_roots_alongside_the_folder(tmp_path, repo):
+    from work_ledger import config, vscode
+
+    other = tmp_path / "other"
+    other.mkdir()
+    task = {"id": "t1", "folder": str(repo), "session_roots": [str(other)],
+            "extra_folders": [], "claude_files": [], "dirty_files": [], "branch_files": []}
+
+    prep = vscode.prepare(config.load(), task, sync=False)
+
+    assert prep["folders"] == [str(repo), str(other)]
+
+
+def test_wl_claude_on_a_codex_task_starts_a_fresh_session(tmp_path, repo, monkeypatch):
+    from click.testing import CliRunner
+
+    from work_ledger import cli
+
+    monkeypatch.setattr(cli.shutil, "which", lambda name: None)
+    cx = codex_home(tmp_path, {"rollout-1": [session_meta("01a0", str(repo)), world_state(str(repo))]},
+                    names={"01a0": "heat pump"})
+    sweep_cfg(monkeypatch, cx)
+
+    result = CliRunner().invoke(cli.cli, ["claude", "--dry-run", "heat"])
+
+    assert result.exit_code == 0, result.output
+    assert "--resume" not in result.output
+    assert result.output.strip().endswith("claude")
+
+
+def test_clean_roots_drops_ancestors_and_descendants_of_the_folder(tmp_path):
+    """A root above or below the task folder adds nothing to the workspace."""
+    folder = tmp_path / "Codex" / "2026-09-15" / "you"
+    folder.mkdir(parents=True)
+    inside = folder / "sub"
+    inside.mkdir()
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    roots = [str(tmp_path / "Codex"), str(inside), str(sibling)]
+
+    assert codex.clean_roots(roots, str(folder), tmp_path / "codex-home") == [str(sibling)]

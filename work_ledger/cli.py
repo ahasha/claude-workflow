@@ -234,7 +234,8 @@ def claude(query, include_archived, dry_run):
     """Resume the task's most recent Claude Code session (or start one)."""
     cfg = config_mod.load()
     task = pick(cfg, ledger.load_tasks(cfg, include_archived), " ".join(query))
-    sessions = [s for s in task["sessions"] if s.get("source") != "manual"]
+    # Only Claude sessions have an id `claude --resume` understands.
+    sessions = [s for s in task["sessions"] if s.get("source") in (None, "claude")]
     if sessions:
         cwd = sessions[0].get("cwd") or task["folder"]
         args = ["claude", "--resume", sessions[0]["session_id"]]

@@ -136,13 +136,21 @@ def read_watermark(cfg) -> dict[str, list]:
 
 
 def clean_roots(roots: list[str], folder: str, codex_dir: Path) -> list[str]:
-    """Drop the task's own folder, Codex's internal dirs and roots that are gone."""
+    """Roots worth opening beside the task folder.
+
+    Drops Codex's own directories, roots that are gone, and anything above or
+    below the folder: a parent would pull in unrelated siblings, and a child is
+    already open as part of the folder.
+    """
+    here = Path(folder)
     out = []
     for r in roots:
         p = Path(r)
-        if r == folder or r in out or not p.is_dir():
+        if r in out or not p.is_dir():
             continue
         if p == codex_dir or codex_dir in p.parents:
+            continue
+        if p == here or p in here.parents or here in p.parents:
             continue
         out.append(r)
     return out

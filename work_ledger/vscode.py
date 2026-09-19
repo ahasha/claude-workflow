@@ -49,7 +49,8 @@ def prepare(cfg: Config, task: dict, sync: bool = True) -> dict:
             raise FileNotFoundError(f"{folder} no longer exists")
         messages.append(f"{folder} is gone; using {fallback}")
         folder = fallback
-    folders = [folder] + [f for f in task.get("extra_folders") or [] if os.path.isdir(f)]
+    extra = (task.get("session_roots") or []) + (task.get("extra_folders") or [])
+    folders = [folder] + [f for f in extra if f != folder and os.path.isdir(f)]
 
     if sync:
         for f in folders:
