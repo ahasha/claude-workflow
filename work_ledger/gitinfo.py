@@ -73,6 +73,7 @@ def info(folder: str | Path) -> dict:
     if not top:
         return {
             "repo": None,
+            "repo_id": None,
             "main_repo": None,
             "branch": None,
             "is_worktree": False,
@@ -88,8 +89,13 @@ def info(folder: str | Path) -> dict:
     common = git(top, "rev-parse", "--path-format=absolute", "--git-common-dir")
     main_repo = str(Path(common).parent) if common else top
 
+    # The root commit survives moving or renaming the folder.
+    roots = git(top, "rev-list", "--max-parents=0", "HEAD")
+    repo_id = min(roots.split()) if roots else None
+
     return {
         "repo": Path(main_repo).name,
+        "repo_id": repo_id,
         "main_repo": main_repo,
         "branch": branch,
         "is_worktree": Path(main_repo).resolve() != Path(top).resolve(),

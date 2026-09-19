@@ -73,3 +73,6 @@ A task can list extra folders (`work-ledger add <folder> --to <words>`). They ap
 - Tool-call shape for edited files in transcripts: this assumes `tool_use` blocks with `input.file_path`.
 - Whether the Python extension respects `python.defaultInterpreterPath` in a workspace file when it has already chosen an interpreter.
 - Multiple `--file-uri` arguments in one `code` call.
+
+## Moved repos
+Tasks are keyed by host and folder, so moving a repo would strand its old task. The hook records `repo_id` (the git root commit). The first time it records a session in a repo, `relocate.reconcile` looks for this host's records whose `main_repo` no longer exists and that share the `repo_id` (older records without one match on repo name). It rebases their `folder`, `main_repo`, `last_cwd` and `claude_files` onto the new location, sets `moved_from`, and moves the task's note/title/archived metadata to the new task id. `cwd` is kept, since `claude --resume` depends on it. `wl add` runs the same check.

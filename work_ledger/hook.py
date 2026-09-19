@@ -146,7 +146,14 @@ def run(stdin=None) -> None:
         except OSError:
             pass
 
+    checked = record.get("repo_id") and not existing.get("reloc_checked")
+    if checked:
+        record["reloc_checked"] = True
     atomic_write(path, record)
+    if checked:
+        from work_ledger import relocate  # after the write, so a failure can't lose the record
+
+        relocate.reconcile(cfg, record)
 
 
 def main() -> None:

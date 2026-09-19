@@ -9,7 +9,7 @@ import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from work_ledger import gitinfo, hook
+from work_ledger import gitinfo, hook, relocate
 from work_ledger.config import Config
 
 USER_FIELDS = ("note", "archived", "extra_folders")
@@ -128,6 +128,7 @@ def add_manual(cfg: Config, folder: str) -> dict:
         **gitinfo.info(top),
     }
     hook.atomic_write(path, record)
+    relocate.reconcile(cfg, record)
     return record
 
 
