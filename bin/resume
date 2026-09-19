@@ -1,0 +1,295 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["click>=8.1"]
+# ///
+"""resume — jump back into a Claude Code session from any repo, worktree, or host.
+
+Reads the ledger written by hooks/record_session.py. Uses fzf if installed,
+otherwise a numbered menu.
+
+Config (environment variables):
+  WORK_LEDGER_DIR      ledger location (default ~/.work-ledger)
+  WORK_LEDGER_REMOTES  space-separated ssh aliases to also read from, e.g. "vm"
+  WORK_LEDGER_DAYS     hide sessions older than this (default 60; 0 = no limit)
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shlex
+import shutil
+import socket
+import subprocess
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import click
+
+LEDGER_DIR = Path(os.environ.get("WORK_LEDGER_DIR", Path.home() / ".work-ledger"))
+HOST = os.environ.get("WORK_LEDGER_HOST") or socket.gethostname().split(".")[0]
+REMOTES = os.environ.get("WORK_LEDGER_REMOTES", "").split()
+MAX_DAYS = int(os.environ.get("WORK_LEDGER_DAYS", "60"))
+
+
+# ------------------------------------------------------------------ loading
+
+def load_local() -> list[dict]:
+    records = []
+    for path in (LEDGER_DIR / "sessions").glob("*/*.json"):
+        try:
+            rec = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        rec["_file"] = str(path)
+        records.append(rec)
+    return records
+
+
+def load_remote(alias: str) -> list[dict]:
+    """Ask a remote host for its records by running `resume dump` there."""
+    cmd = ["ssh", "-o", "ConnectTimeout=4", "-o", "BatchMode=yes", alias,
+           "bash -lc 'resume dump'"]
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        click.echo(f"resume: could not reach {alias}", err=True)
+        return []
+    if out.returncode != 0:
+        click.echo(f"resume: {alias}: {out.stderr.strip() or 'failed'}", err=True)
+        return []
+    records = []
+    for line in out.stdout.splitlines():
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        rec["_ssh"] = alias
+        records.append(rec)
+    return records
+
+
+def load_all(include_archived: bool, local_only: bool = False) -> list[dict]:
+    records = load_local()
+    seen = {(r.get("host"), r.get("session_id")) for r in records}
+    for alias in [] if local_only else REMOTES:
+        for rec in load_remote(alias):
+            # If the ledger dir is synced, remote records may already be local.
+            if (rec.get("host"), rec.get("session_id")) not in seen:
+                records.append(rec)
+
+    if not include_archived:
+        records = [r for r in records if not r.get("archived")]
+    if MAX_DAYS > 0:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=MAX_DAYS)
+        records = [r for r in records if parse_ts(r.get("last_seen")) >= cutoff]
+    records.sort(key=lambda r: r.get("last_seen") or "", reverse=True)
+    return records
+
+
+# ------------------------------------------------------------------ display
+
+def parse_ts(ts: str | None) -> datetime:
+    floor = datetime.min.replace(tzinfo=timezone.utc)
+    try:
+        return datetime.fromisoformat(ts) if ts else floor
+    except ValueError:
+        return floor
+
+
+def ago(ts: str | None) -> str:
+    s = int((datetime.now(timezone.utc) - parse_ts(ts)).total_seconds())
+    if s < 3600:
+        return f"{max(s // 60, 1)}m"
+    if s < 86400:
+        return f"{s // 3600}h"
+    return f"{s // 86400}d"
+
+
+def where(rec: dict) -> str:
+    name = rec.get("repo") or Path(rec.get("project_dir", "?")).name
+    if rec.get("branch"):
+        name += f":{rec['branch']}"
+    if rec.get("is_worktree"):
+        name += " (wt)"
+    return name
+
+
+def label(rec: dict) -> str:
+    title = rec.get("title") or "(untitled)"
+    if rec.get("note"):
+        title = f"[{rec['note']}] {title}"
+    if rec.get("archived"):
+        title = f"(archived) {title}"
+    dirty = "*" if rec.get("dirty_files") else " "
+    return (f"{ago(rec.get('last_seen')):>4} {dirty} {rec.get('host', '?'):<10} "
+            f"{where(rec):<42.42} {title}")
+
+
+def details(rec: dict) -> str:
+    keys = ["title", "note", "host", "repo", "branch", "is_worktree", "project_dir",
+            "repo_root", "main_repo", "dirty_files", "first_seen", "last_seen",
+            "last_event", "session_id"]
+    return "\n".join(f"{k:>12}: {rec.get(k)}" for k in keys)
+
+
+# ------------------------------------------------------------------ picking
+
+def pick(records: list[dict], query: str) -> dict:
+    if not records:
+        raise click.ClickException("no sessions in the ledger yet.")
+
+    if shutil.which("fzf"):
+        # The preview pane reads a cached file so moving the cursor stays fast.
+        preview_file = LEDGER_DIR / ".preview.json"
+        preview_file.parent.mkdir(parents=True, exist_ok=True)
+        preview_file.write_text(json.dumps([details(r) for r in records]))
+        preview = ("python3 -c \"import json,sys;"
+                   f"print(json.load(open('{preview_file}'))[int(sys.argv[1])])\" {{1}}")
+        proc = subprocess.run(
+            ["fzf", "--delimiter=\t", "--with-nth=2..", "--no-sort",
+             "--query", query, "--preview", preview, "--preview-window=down,40%",
+             "--header", "age  * = uncommitted changes"],
+            input="\n".join(f"{i}\t{label(r)}" for i, r in enumerate(records)),
+            stdout=subprocess.PIPE, text=True,
+        )
+        if proc.returncode != 0 or not proc.stdout.strip():
+            raise SystemExit(1)
+        return records[int(proc.stdout.split("\t", 1)[0])]
+
+    words = query.lower().split()
+    shown = [r for r in records if all(w in label(r).lower() for w in words)][:30]
+    if not shown:
+        raise click.ClickException(f"nothing matches '{query}'.")
+    for i, r in enumerate(shown, 1):
+        click.echo(f"{i:>3}. {label(r)}", err=True)
+    n = click.prompt("pick #", type=click.IntRange(1, len(shown)), err=True)
+    return shown[n - 1]
+
+
+def target_dir(rec: dict) -> str:
+    """Folder to resume in. Falls back if a worktree has been removed."""
+    for key in ("project_dir", "repo_root", "main_repo"):
+        d = rec.get(key)
+        if d and (rec.get("_ssh") or os.path.isdir(d)):
+            if key != "project_dir":
+                click.echo(f"resume: {rec.get('project_dir')} is gone; using {d}", err=True)
+            return d
+    raise click.ClickException("none of this session's folders exist any more.")
+
+
+def update_local(rec: dict, **changes) -> None:
+    if rec.get("_ssh"):
+        raise click.ClickException(
+            f"notes and archiving only work on local records; run this on {rec['_ssh']} "
+            "or sync the ledger dir.")
+    path = Path(rec["_file"])
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data.update(changes)
+    path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+# ------------------------------------------------------------------ CLI
+
+class DefaultGroup(click.Group):
+    """A group that runs `claude` when no subcommand is given, so
+    `resume retroscore` means `resume claude retroscore`."""
+
+    default_cmd = "claude"
+
+    def parse_args(self, ctx, args):
+        if not args or (args[0] not in self.commands and args[0] not in ("--help", "-h")):
+            args.insert(0, self.default_cmd)
+        return super().parse_args(ctx, args)
+
+
+def picker_options(f):
+    f = click.argument("query", nargs=-1)(f)
+    f = click.option("--all", "include_archived", is_flag=True,
+                     help="Include archived sessions.")(f)
+    return f
+
+
+@click.group(cls=DefaultGroup, context_settings={"help_option_names": ["-h", "--help"]})
+def cli():
+    """Jump back into a Claude Code session from any repo, worktree, or host.
+
+    With no subcommand, fuzzy-pick a session and resume it in Claude Code.
+    Any words you pass pre-filter the picker.
+    """
+
+
+@cli.command()
+@picker_options
+def claude(query, include_archived):
+    """Resume the picked session in Claude Code (default)."""
+    rec = pick(load_all(include_archived), " ".join(query))
+    d, sid = target_dir(rec), rec["session_id"]
+    if rec.get("_ssh"):
+        inner = f"cd {shlex.quote(d)} && exec claude --resume {shlex.quote(sid)}"
+        os.execvp("ssh", ["ssh", "-t", rec["_ssh"], f"bash -lc {shlex.quote(inner)}"])
+    os.chdir(d)
+    os.execvp("claude", ["claude", "--resume", sid])
+
+
+@cli.command()
+@picker_options
+def code(query, include_archived):
+    """Open the picked session's folder in VS Code (Remote-SSH for remote hosts)."""
+    rec = pick(load_all(include_archived), " ".join(query))
+    d = target_dir(rec)
+    if rec.get("_ssh"):
+        os.execvp("code", ["code", "--remote", f"ssh-remote+{rec['_ssh']}", d])
+    os.execvp("code", ["code", d])
+
+
+@cli.command()
+@picker_options
+def path(query, include_archived):
+    """Print the picked session's folder (used by the `wcd` shell function)."""
+    rec = pick(load_all(include_archived, local_only=True), " ".join(query))
+    click.echo(target_dir(rec))
+
+
+@cli.command("list")
+@click.option("--all", "include_archived", is_flag=True, help="Include archived sessions.")
+@click.option("--local", is_flag=True, help="Skip remote hosts.")
+def list_(include_archived, local):
+    """Print recent sessions, newest first."""
+    for r in load_all(include_archived, local_only=local):
+        click.echo(label(r))
+
+
+@cli.command()
+@picker_options
+@click.option("-m", "--message", help="Note text; prompts if omitted. Empty clears it.")
+def note(query, include_archived, message):
+    """Attach a short note to a session, like 'next: write tests'."""
+    rec = pick(load_all(include_archived, local_only=True), " ".join(query))
+    if message is None:
+        message = click.prompt(f"note for '{rec.get('title')}' (blank clears)",
+                               default="", show_default=False)
+    update_local(rec, note=message.strip() or None)
+
+
+@cli.command()
+@click.argument("query", nargs=-1)
+def archive(query):
+    """Toggle a session's archived flag (archived sessions are hidden by default)."""
+    rec = pick(load_all(include_archived=True, local_only=True), " ".join(query))
+    update_local(rec, archived=not rec.get("archived"))
+    click.echo("unarchived" if rec.get("archived") else "archived", err=True)
+
+
+@cli.command(hidden=True)
+def dump():
+    """Print this host's records as JSON lines (called over ssh by other hosts)."""
+    for rec in load_local():
+        if rec.get("host") == HOST:
+            rec.pop("_file", None)
+            click.echo(json.dumps(rec))
+
+
+if __name__ == "__main__":
+    cli()

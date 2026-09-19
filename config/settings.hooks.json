@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 ~/.work-ledger/hooks/record_session.py" }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 ~/.work-ledger/hooks/record_session.py" }
+        ]
+      }
+    ]
+  }
+}
